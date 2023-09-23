@@ -11,6 +11,13 @@ Netron has experimental support for PyTorch, TorchScript, TensorFlow, OpenVINO, 
 
 <p align='center'><a href='https://www.lutzroeder.com/ai'><img src='.github/screenshot.png' width='800'></a></p>
 
+## How to run
+
+To run the current version one should do:
+1. Clone the repo and change to that directory
+2. If you are using the `python3` call the following command `python3 package.py build start`
+3. For `python` users run the above mentioned command changing `python3` to `python`.
+
 ## Install
 
 **macOS**: [**Download**](https://github.com/lutzroeder/netron/releases/latest) the `.dmg` file or run `brew install --cask netron`
