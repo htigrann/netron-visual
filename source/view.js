@@ -852,7 +852,10 @@ view.View = class {
             for (const rule of rules) {
                 if (node.matches(rule.selectorText)) {
                     for (const item of rule.style) {
-                        node.style[item] = rule.style[item];
+                        if (!(node.classList.contains('node-content') && item === 'fill')) {
+                            node.style[item] = rule.style[item];
+                        }
+
                     }
                 }
             }
@@ -1591,8 +1594,8 @@ view.Graph = class extends grapher.Graph {
         this._selection = new Set();
     }
 
-    createNode(node) {
-        const value = new view.Node(this, node);
+    createNode(node, maxValue) {
+        const value = new view.Node(this, node, maxValue);
         value.name = (this._nodeKey++).toString();
         this._table.set(node, value);
         return value;
@@ -1649,8 +1652,43 @@ view.Graph = class extends grapher.Graph {
                 this.createValue(value).from = viewInput;
             }
         }
+
+        let maxDim = 1;
         for (const node of graph.nodes) {
-            const viewNode = this.createNode(node);
+            if (!node._type?.name?.toLowerCase().includes('conv')) {
+                continue;
+            }
+            let summary = 0;
+            let i = 0;
+            for (const input of node.inputs) {
+                if (i === 0) {
+                    i = i + 1
+                    continue
+                } else {
+                    let vals = input?._value[0]?._type?._shape?._dimensions;
+                    if (typeof vals === 'undefined') {
+                        vals = input?._value[0]?._initializer?._type?._shape?.dimensions;
+                    }
+                    const values = vals
+                    if (values && values.length > 0 && values.every((dim) => !dim || Number.isInteger(dim) || dim instanceof base.Int64 || (typeof dim === 'string'))) {
+                        let sum = 1;
+                        for (let i = 0; i < values.length; i++) {
+                            sum *= values[i];
+                        }
+                        summary += sum
+                    }
+                }
+            }
+
+            node.summary = summary
+
+            if (summary != 0 && summary > maxDim) {
+                maxDim = summary
+            }
+        }
+
+        for (const node of graph.nodes) {
+            const viewNode = this.createNode(node, maxDim);
             this.setNode(viewNode);
             const inputs = node.inputs;
             for (const input of inputs) {
@@ -1727,8 +1765,23 @@ view.Graph = class extends grapher.Graph {
     }
 
     build(document, origin) {
+        let maxElement = 1;
         for (const value of this._values.values()) {
-            value.build();
+            const dimensions = value?.value?._type?._shape?._dimensions || [];
+            if (dimensions.length > 0 && dimensions.every((dim) => !dim || Number.isInteger(dim) || dim instanceof base.Int64 || (typeof dim === 'string'))) {
+                let sum = 1;
+                for (let i = 0; i < dimensions.length; i++) {
+                    sum *= dimensions[i];
+                }
+                if (sum > maxElement) {
+                    maxElement = sum;    
+                }
+            }
+        }
+
+        for (const value of this._values.values()) {
+            value.build(maxElement);
+
         }
         super.build(document, origin);
     }
@@ -1785,10 +1838,12 @@ view.Graph = class extends grapher.Graph {
 
 view.Node = class extends grapher.Node {
 
-    constructor(context, value) {
+    constructor(context, value, maxValue) {
         super();
         this.context = context;
         this.value = value;
+        this.maxValue = maxValue;
+        this.color = "rgb(255, 255, 255)";
         view.Node.counter = view.Node.counter || 0;
         this.id = 'node-' + (value.name ? 'name-' + value.name : 'id-' + (view.Node.counter++).toString());
         this._add(this.value);
@@ -1862,6 +1917,18 @@ view.Node = class extends grapher.Node {
         if (initializers.length > 0 || hiddenInitializers || attributes.length > 0 || functions.length > 0) {
             const list = this.list();
             list.on('click', () => this.context.activate(node));
+            // Assuming percent is the percentage value (between 0 and 100)
+            const percent = (node.summary / this.maxValue) * 100;
+            if (node._type?.name?.toLowerCase().includes('conv')) {
+                if (percent < 20) {
+                    // For lower percentages, keep it closer to white (light gray)
+                    this.color = `rgb(${255 - (percent * 5.1)}, 255, 255)`;
+                } else {
+                    // For higher percentages, make it red
+                    this.color = `rgb(255, ${255 - ((percent - 20) * 5.1)}, ${255 - ((percent - 20) * 5.1)})`;
+                }
+            }
+
             for (const argument of initializers) {
                 const value = argument.value[0];
                 const type = value.type;
@@ -1896,10 +1963,11 @@ view.Node = class extends grapher.Node {
                         }
                     }
                 }
-                list.add(argument.name, shape, type ? type.toString() : '', separator);
+                list.add(argument.name, shape, type ? type.toString() : '', separator, this.color);
             }
             if (hiddenInitializers) {
                 list.add('\u3008\u2026\u3009', '', null, '');
+                list.add(null, '\u3008' + '\u2026' + '\u3009', '', null, '', this.color);
             }
             for (const attribute of attributes) {
                 if (attribute.visible !== false) {
@@ -1908,6 +1976,7 @@ view.Node = class extends grapher.Node {
                         value = value.substring(0, 25) + '\u2026';
                     }
                     list.add(attribute.name, value, attribute.type, ' = ');
+                    list.add(attribute.name, value, attribute.type, ' = ', this.color);
                 }
             }
             for (const attribute of functions) {
@@ -1922,12 +1991,12 @@ view.Node = class extends grapher.Node {
         }
         if (Array.isArray(node.chain) && node.chain.length > 0) {
             for (const innerNode of node.chain) {
-                this.context.createNode(innerNode);
+                this.context.createNode(innerNode, this.maxValue);
                 this._add(innerNode);
             }
         }
         if (node.inner) {
-            this.context.createNode(node.inner);
+            this.context.createNode(node.inner, this.maxValue);
             this._add(node.inner);
         }
     }
@@ -2030,9 +2099,11 @@ view.Value = class {
         this.to.push(node);
     }
 
-    build() {
+    build(maxDimension) {
         this._edges = this._edges || [];
         if (this.from && Array.isArray(this.to)) {
+            let strokeWidth = 1;
+            const MAX_STROKE_WIDTH = 30;
             for (let i = 0; i < this.to.length; i++) {
                 const to = this.to[i];
                 let content = '';
@@ -2042,12 +2113,18 @@ view.Value = class {
                     type.shape.dimensions &&
                     type.shape.dimensions.length > 0 &&
                     type.shape.dimensions.every((dim) => !dim || Number.isInteger(dim) || dim instanceof base.Int64 || (typeof dim === 'string'))) {
+                    let sum = 1;
+                    for (let i = 0; i < type.shape.dimensions.length; i++) {
+                        sum *= type.shape.dimensions[i];
+                    }
+                    strokeWidth = 2 + (sum / maxDimension) * MAX_STROKE_WIDTH;
                     content = type.shape.dimensions.map((dim) => (dim !== null && dim !== undefined) ? dim : '?').join('\u00D7');
                     content = content.length > 16 ? '' : content;
                 }
                 if (this.context.options.names) {
                     content = this.value.name.split('\n').shift(); // custom argument id
                 }
+                this.strokeWidth = strokeWidth;
                 const edge = new view.Edge(this, this.from, to);
                 edge.v = this.from.name;
                 edge.w = to.name;

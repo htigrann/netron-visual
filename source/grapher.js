@@ -121,7 +121,7 @@ grapher.Graph = class {
             element.setAttribute('viewBox', '0 0 10 10');
             element.setAttribute('refX', 9);
             element.setAttribute('refY', 5);
-            element.setAttribute('markerUnits', 'strokeWidth');
+            element.setAttribute('markerUnits', 'userSpaceOnUse');
             element.setAttribute('markerWidth', 8);
             element.setAttribute('markerHeight', 6);
             element.setAttribute('orient', 'auto');
@@ -426,8 +426,8 @@ grapher.Node.List = class {
         this._events = {};
     }
 
-    add(name, value, tooltip, separator) {
-        const item = new grapher.Node.List.Item(name, value, tooltip, separator);
+    add(name, value, tooltip, separator, maxBandwidth) {
+        const item = new grapher.Node.List.Item(name, value, tooltip, separator, maxBandwidth);
         this._items.push(item);
         return item;
     }
@@ -458,6 +458,8 @@ grapher.Node.List = class {
         }
         this.element.setAttribute('transform', 'translate(' + x + ',' + y + ')');
         this.background = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        this.background.setAttribute('class', 'node-content');
+        this.background.style.setProperty('fill', this._items[0]['maxBandwidth']);
         this.element.appendChild(this.background);
         parent.appendChild(this.element);
         this.height += 3;
@@ -514,11 +516,12 @@ grapher.Node.List = class {
 
 grapher.Node.List.Item = class {
 
-    constructor(name, value, tooltip, separator) {
+    constructor(name, value, tooltip, separator, maxBandwidth) {
         this.name = name;
         this.value = value;
         this.tooltip = tooltip;
         this.separator = separator;
+        this.maxBandwidth = maxBandwidth;
     }
 };
 
@@ -552,6 +555,7 @@ grapher.Edge = class {
             this.element.setAttribute('id', this.id);
         }
         this.element.setAttribute('class', this.class ? 'edge-path ' + this.class : 'edge-path');
+        this.element.style.setProperty('stroke-width', this.value.strokeWidth + 'px');
         edgePathGroupElement.appendChild(this.element);
         this.hitTest = createElement('path');
         this.hitTest.setAttribute('class', 'edge-path-hit-test');
@@ -576,6 +580,7 @@ grapher.Edge = class {
             const edgeBox = this.labelElement.getBBox();
             this.width = edgeBox.width;
             this.height = edgeBox.height;
+            this.strokeWidth = this.value.strokeWidth;
         }
     }
 
@@ -608,7 +613,7 @@ grapher.Edge = class {
         this.element.setAttribute('d', edgePath);
         this.hitTest.setAttribute('d', edgePath);
         if (this.labelElement) {
-            this.labelElement.setAttribute('transform', 'translate(' + (this.x - (this.width / 2)) + ',' + (this.y - (this.height / 2)) + ')');
+            this.labelElement.setAttribute('transform', 'translate(' + (this.x - (this.width / 2) + ((this.strokeWidth || 1) / 2)) + ',' + (this.y - (this.height / 2)) + ')');
             this.labelElement.style.opacity = 1;
         }
     }
